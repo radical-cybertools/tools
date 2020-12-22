@@ -1,0 +1,262 @@
+#!/bin/bash
+# edited   by   andre@merzky.net
+# original at   https://gist.github.com/Mark-Booth/5058384
+# forked   from https://gist.github.com/lth2h/4177524 @ ae184f1 by mark.booth
+# forked   from https://gist.github.com/jehiah/1288596 @ e357c1e by lth2h
+# ideas    from https://github.com/kortina/bakpak/blob/master/bin/git-branches-vs-origin-master
+
+# this prints out some branch status
+# (similar to the '... ahead' info you get from git status)
+
+# example:
+# $ git branch-status -a
+# dns_check (ahead 1) | (behind 112) origin/master
+# master (ahead 2) | (behind 0) origin/master
+# $ git branch-status
+# master (ahead 2) | (behind 0) origin/master
+
+OPTIONS='hAacdmnoqBb:s:lru:'
+usage="
+
+$(basename "$0") ["$OPTIONS"] -- Summarise status of branch(es)
+
+Where:
+    -h          shows this help text
+    -A          shows local branches, excluding remote-only ones
+    -a          shows all   branches, including remote-only ones (default)
+    -c          shows the current branch only
+    -m          shows branch(es) compared to origin/master
+    -d          shows branch(es) compared to origin/devel      (default)
+    -n          shows numbers instead of graphs
+    -q          quiet, show output only if counts are non-zero
+    -b BRANCH   shows branch(es) compared to BRANCH (default: current)
+    -o          shows branch(es) compared to their origins
+    -s FROM/TO  shows branch(es) with respect to a branch substitution
+                Note: Any branches which don't match FROM will be ignored
+    -l          shows only when the left/local side is ahead (push needed)
+    -r          shows only when the right/remote side is ahead (pull needed)
+    -u UPSTREAM selects an upstream other than origin for -b and -m options
+
+For example
+    $(basename "$0") -m              # Show all branches which are ahead
+                                      # of or behind their origin/master.
+    $(basename "$0") -b 8.38-hotfix  # Show each repo whose checked out
+                                      # branch is behind the hotfix branch.
+    $(basename "$0") -s 8.34/8.36    # Show all 8.34 branches which are
+                                      # ahead of or behind their 8.38 remote.
+"
+
+verbose=true
+filter=refs/heads
+# upstreambranch=$(git symbolic-ref --short -q HEAD)
+upstreambranch=devel
+
+while getopts $OPTIONS option; do
+  case "$option" in
+    h) echo "$usage"
+       exit
+       ;;
+    A) all=false
+       ;;
+    a) all=true
+       ;;
+    c) filter=
+       ;;
+    d) upstreambranch=devel
+       ;;
+    m) upstreambranch=master
+       ;;
+    n) numbers=true
+       ;;
+    q) verbose=
+       ;;
+    b) upstreambranch=$OPTARG
+       ;;
+    o) upstreambranch=
+       ;;
+    s) remotesubstitute=$OPTARG
+       ;;
+    l) aheadonly=true
+       ;;
+    r) behindonly=true
+       ;;
+    u) upstream=$OPTARG
+       ;;
+    :) echo "Option -$OPTARG requires an argument." >&2
+       echo "$usage" >&2
+       exit 1
+       ;;
+    ?) printf "Invalid option: -$OPTARG" >&2
+       echo "$usage" >&2
+       exit 1
+       ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+test -z "$filter"         && filter=$(git symbolic-ref -q HEAD)
+test -z "$upstream"       && upstream=origin
+
+BM=0
+RM=0
+LM=0
+
+LIM=40
+test -z $aheadonly  || LIM=80
+test -z $behindonly || LIM=80
+
+P="/tmp/git_pipe.$$"
+mkfifo $P
+
+if test -z "$all"
+then
+    gc=$(git for-each-ref --format="%(refname:short) %(upstream:short)" $filter)
+    (printf "$gc" | grep '^master\b'
+     printf "$gc" | grep '^devel\b'
+     printf "$gc" | grep -v -e '^master\b' -e '^devel\b') > $P &
+
+else
+    for b in $((git branch -a | sed -e 's/^\*/ /' \
+                  | grep -ve '^[ \*]*remotes/'"$upstream" \
+                  | grep -v -e HEAD \
+                  ; \
+                git branch -a | sed -e 's/^\*/ /' \
+                  | grep -e '^[ \*]*remotes/'"$upstream" \
+                  | grep -v -e HEAD -e "$upstream/pr/" \
+                  | cut -f 3- -d '/' \
+               ) | xargs -n 1 echo | sort -u)
+    do
+        echo $b origin/$b
+    done > $P &
+fi
+
+while read local remote
+do
+    # test if branch needs checkout
+    if !  git rev-parse --verify "$local" > /dev/null 2>&1
+    then
+        git fetch origin "$local":"$local" > /dev/null 2>&1
+        git branch --set-upstream-to=origin/"$local" "$local"
+    fi
+
+    if ! test -z "$remotesubstitute"
+    then
+        remote=$(echo $remote | sed "s/${remotesubstitute}/")
+
+    elif ! test -z "$upstreambranch"
+    then
+        remote=$upstreambranch
+    fi
+
+    if test -z "$(git ls-remote . "origin/$local")"
+    then
+        glyph='\ \?\ '
+    else
+        glyph='\ \ \ '
+    fi
+
+    if test -z "$(git ls-remote . $remote)"
+    then
+        remote=""
+        LEFT_AHEAD=0
+        RIGHT_AHEAD=0
+    else
+        rev='git rev-list --left-right --pretty=oneline'
+        null='/dev/null'
+        filter='\bmerge\b'
+        DELTAS=$($rev ${local}...${remote} | grep -ive $filter 2>$null || true)
+        OK=$?
+        LEFT_AHEAD=$( echo "$DELTAS" | grep -c '^<')
+        RIGHT_AHEAD=$(echo "$DELTAS" | grep -c '^>')
+    fi
+
+    # new longest name?
+    test ${#local} -gt $BM && BM=${#local}
+
+    if test "$OK" = 0
+    then
+        R='#'
+        L='#'
+    else
+        R='#'
+        L='?'
+    fi
+
+    if ! test -z "$numbers"
+    then
+        R=$RIGHT_AHEAD
+        RM=5
+        L=$LEFT_AHEAD
+        LM=5
+    else
+        i=0
+        while test $i -lt "$RIGHT_AHEAD"
+        do
+            i=$((i+1))
+            R="$R-"
+          # test ${#R} -gt $LIM && R=$(printf "%s%5d<<<" "$R" "$RIGHT_AHEAD")
+            test ${#R} -gt $LIM && R="$R<<<"
+            test ${#R} -gt $RM  && RM="${#R}"
+            test ${#R} -gt $LIM && break
+        done
+
+        i=0
+        while test $i -lt $LEFT_AHEAD
+        do
+            i=$((i+1))
+            L="-$L"
+          # test ${#L} -gt $LIM && L=$(printf "%5d>>>%s" "$LEFT_AHEAD" "$L")
+            test ${#L} -gt $LIM && L=">>>$L"
+            test ${#L} -gt $LM  && LM=${#L}
+            test ${#L} -gt $LIM && break
+        done
+    fi
+
+    # skip this one if this is the compare target and L,R are empty
+    if test "$upstreambranch" && test "$remote" = "$upstream/$local"
+    then
+        if test "$L" = "#" && test "$R" = "#"
+        then
+            continue
+        fi
+    fi
+
+
+    if [ -z $aheadonly ] && [ -z $behindonly ] ; then
+        if [ $LEFT_AHEAD -gt 0 ] || [ $RIGHT_AHEAD -gt 0 ] || [ $verbose ] ; then
+            INFO="$INFO$glyph $local $L $R $remote\\n"
+        fi
+    elif [ $aheadonly ] ; then
+        if [ $LEFT_AHEAD -gt 0 ] || [ $verbose ] ; then
+            RM=0
+            INFO="$INFO$glyph $local $L # $remote\\n"
+        fi
+    elif [ $behindonly ] ; then
+        if [ $RIGHT_AHEAD -gt 0 ] || [ $verbose ] ; then
+            LM=0
+            INFO="$INFO$glyph $local # $R $remote\\n"
+        fi
+    else
+         printf "Specifying both -l and -r makes no sense" >&2
+         echo "$usage" >&2
+         exit 1
+    fi
+done < $P
+rm -f $P
+
+test -z "$numbers" && RM="-$RM"
+
+s="%3s %-${BM}s  %${LM}s | %${RM}s  %-20s\n"
+
+echo
+printf "$INFO" | \
+while read glyph local L R remote
+do
+    L=$(echo "$L" | sed -e 's/#//g')
+    R=$(echo "$R" | sed -e 's/#//g')
+
+    printf "$s" "$glyph" "$local"  "$L"  "$R"  "$remote"
+  # printf "$s" $local $L $R $remote
+done
+echo
+

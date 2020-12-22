@@ -1,0 +1,91 @@
+#!/bin/sh
+
+# pull all branches, also push those which need puching, set up tracking, mark
+# obsolete branches as `gone`
+
+git fetch
+git pull --prune 2>&1 >> /dev/null
+
+output(){
+    sig=$1
+    ref=$2
+    msg=$3
+
+    printf " $sig %-50s $msg\n" $ref
+}
+
+
+goners=`git b | grep ' gone' | cut -f 3 -d ' '`
+head="$(git symbolic-ref HEAD)"
+branch=$(git b | grep '^*' | cut -f 2 -d ' ')
+git for-each-ref --format="%(refname) %(upstream)" refs/heads \
+    | sort | while read ref up short
+do
+    short=$(echo $ref | cut -c 12-)
+
+  # echo $short
+  # echo $ref
+  # echo $up
+  # echo $head
+
+    gone=False
+    for goner in $goners
+    do
+        if test "$goner" = "$short"
+        then
+            output " -" "$short" "[gone]"
+            gone=True
+            break
+        fi
+    done
+
+    if test $gone = "True"
+    then
+        continue
+    fi
+
+    mine="$(  git rev-parse  "$ref"       2>&1)"
+    theirs="$(git rev-parse         "$up" 2>&1)"
+    base="$(  git merge-base "$ref" "$up" 2>&1)"
+
+    check_1=$(echo "$theirs" 2>&1 | cut -f 1 -d ':' 2>&1 )
+    check_2=$(echo "$base"   2>&1 | cut -f 1 -d ':' 2>&1 )
+    if  test "$check_1" = 'error' -o \
+             "$check_1" = 'fatal' -o \
+             "$check_2" = 'error' -o \
+             "$check_2" = 'fatal'
+    then
+        output " ?" "$short" "[error]"
+        continue
+    fi
+
+    if test "$mine" = "$theirs"
+    then
+        output " =" "$short" "[up-to-date]"
+        continue
+    fi
+
+    if test "$mine" = "$base"
+    then
+        git fetch origin $short:$short >/dev/null 2>&1
+        output " <" "$short"
+        continue
+    fi
+
+    if test "$theirs" = "$base"
+    then
+        git push origin $short:$short >/dev/null 2>&1
+        if test "$?" = 0
+        then
+            output " >" "$short" "[pushed]"
+        else
+            output " !" "$short" "[missing?]"
+        fi
+      # git update-ref "$ref" "$theirs" "[push]"
+        continue
+    fi
+
+    output "><" "$short" "[fetched]"
+
+done
+

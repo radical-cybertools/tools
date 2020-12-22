@@ -1,0 +1,84 @@
+#!/bin/bash
+
+# show in what commits two branches diverge
+
+set -e
+
+FORMAT='%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset'
+
+(
+    function branch() {
+        git branch 2>/dev/null | grep -e '^*' | tr -d '\* '
+    }
+
+    function ensure_valid_ref() {
+        ref=$1
+        (
+            set +e
+            git show-ref $ref > /dev/null
+            if ! test $? == 0
+            then
+                echo "$0: bad ref: $ref"
+                exit 1
+            fi
+        )
+    }
+
+    if test "$1" == '-r'
+    then
+        rev='true'
+        shift
+    else
+        rev='false'
+    fi
+
+    if test $# == 2
+    then
+        LOCAL=$1
+        REMOTE=$2
+
+    elif test $# == 1
+    then
+        LOCAL=`branch`
+        REMOTE=$1
+
+    else
+        LOCAL=`branch`
+        REMOTE=origin/$LOCAL
+    fi
+
+    ensure_valid_ref $LOCAL
+    ensure_valid_ref $REMOTE
+
+    function show_div() {
+        ref1=$1
+        ref2=$2
+        echo
+        git --no-pager log \
+            --graph \
+            --pretty=format:"$FORMAT" \
+            --abbrev-commit \
+            --date=relative \
+            $ref1..$ref2
+        echo
+        echo
+        echo
+    }
+
+    if test $rev == 'true'
+    then
+        tmp="$LOCAL"
+        LOCAL="$REMOTE"
+        REMOTE="$tmp"
+    fi
+
+
+    echo
+    echo "${LOCAL}   <--->   ${REMOTE}"
+    echo
+    echo incoming:
+    show_div "$LOCAL" "$REMOTE"
+    echo outgoing:
+    show_div "$REMOTE" "$LOCAL"
+)
+

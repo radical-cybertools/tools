@@ -1,0 +1,12 @@
+#!/bin/sh
+# git-track should be added to your path.
+# Sets up auto-tracking of a remote branch with same base name.
+# Can set up "git track" so it feels built-in:
+# git config --global --add alias.track '!git-track'
+#
+BRANCH=`git branch | grep ^\* | cut -c 3-`
+ 
+git config branch.$BRANCH.remote origin
+git config branch.$BRANCH.merge refs/heads/$BRANCH
+echo "tracking origin/$BRANCH"
+

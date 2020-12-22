@@ -1,0 +1,56 @@
+#!/bin/sh
+
+# sync certain (or all: -1) branches with devel.  Master is never synced.
+
+base=$1
+opts=$2
+
+if test "$base" = '-a'
+then
+    opts='-a'
+    base=''
+else
+    opts=''
+fi
+
+ok=1
+
+test -z "$base" && base="devel"
+
+git co "$base"
+git pa
+git bs -b "$base"
+git merge -m "merge from master" "master" || break
+git push
+for b in $(git bs -ad \
+               | grep -v -e '<<<' \
+               | grep '| -' \
+               | cut -f 5 -d ' ')
+do
+    # only merge feature, fix, hotfix, refactor, test branches (unless '-a' is
+    # given)
+    btype=$(echo $b | cut -f 1 -d '/')
+    echo
+
+    if ! test "$opts"  = '-a'       \
+           -o "$btype" = 'fix'      \
+           -o "$btype" = 'feature'  \
+           -o "$btype" = 'refactor' \
+           -o "$btype" = 'tests'    \
+           -o "$btype" = 'test'
+         # -o "$btype" = 'hotfix'   \  # may be based off master
+    then
+        echo "skip $b"
+        continue
+    fi
+
+    git co $b
+    git merge -m "merge from $base" "$base" || break
+    git push
+    ok=0
+done
+
+git co "$base"
+test "$ok" = "0" && git bs -b "$base"
+
+

@@ -1,0 +1,111 @@
+
+[user]
+    name           = Andre Merzky
+    email          = andre@merzky.net
+
+[color]
+    diff           = auto
+    status         = auto
+    branch         = auto
+    interactive    = true
+
+[alias]
+    l              = log --graph --abbrev-commit --date=relative --oneline
+    h              = log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative
+    b              = "!git branch -avv | grep -v -e 'origin/pr/'"
+    bl             = "!git branch -avv | grep -v -e '[ /]origin/'"
+    bs             = branch-status
+    bump           = "!git ci -am 'version bump'; git push; git push --tags"
+    d              = branch-status -d
+    m              = branch-status -m
+    co             = checkout
+    ci             = commit
+    bnames         = "!git b |  cut -c 2- | cut -f 2 -d ' '"
+    gone           = "!for b in $(git b | grep ': gone]' | cut -c 2- | cut -f 2 -d ' '); do printf '%-30s' $b; read X; test \"$X\" = 'y' && git branch -D $b; done"
+    s              = status -s
+    st             = status
+    tags           = log --date-order --graph --tags --simplify-by-decoration --pretty=format:'%ai %h %d'
+    track          = "!b=`git branch | grep -e '^* ' |  cut -c 3-`; git push origin $b ; git branch --set-upstream-to=origin/$b $b"
+    churn          = "!git log --all -M -C --name-only --format='format:' $@ | sort | uniq -c | sort -nr | more"
+    div            = divergence
+    rdiv           = divergence -r
+    change         = "!git div $1 | cut -f 2- -d '-' | grep -v -i -e merge -e '^|' -e 'typo' -e 'snapshot' -e 'incoming:' -e 'outgoing' | rev | cut -f 2- -d '(' | rev | sort -u | uncolor"
+    branch-root    = "!bash -c \"diff --old-line-format= --new-line-format= <(git rev-list --first-parent \"${1:-master}\") <(git rev-list --first-parent \"${2:-HEAD}\") | head -1\""
+    pa             = pull-all
+    aliases        = !git config --get-regexp 'alias.*' | colrm 1 6 | sed 's/[ ]/ = /' | sort | sed -e 's/=/      \t/'
+
+
+[core]
+  # autocrlf       = true
+  # symlinks       = false
+    excludesfile   = /home/merzky/.gitignore
+    name           = Andre Merzky
+    email          = andre@merzky.net
+    whitespace     = trailing-space,space-before-tab,blank-at-eol,tab-in-indent,blank-at-eof
+    mergeoptions   = --no-edit
+
+[branch]
+    autosetupmerge = true
+
+[diff]
+    renames        = copies
+    tool           = vimdiff
+    guitool        = gvimdiff
+    mnemonicprefix = true
+  # external       = git_diff_wrapper.sh
+    compactionHeuristic = true
+    wsErrorHighlight = old,new
+
+[difftool]
+    prompt         = false
+
+[merge]
+    tool           = vimdiffmerge
+    stat           = true
+    mergeoptions   = --no-edit
+
+[mergetool]
+    keepBackup     = true
+    prompt         = true
+
+[mergetool "vimdiffmerge"]
+    cmd            = vimdiffmerge 'gvim -o' $BASE $LOCAL $REMOTE $MERGED
+    trustExitCode  = false
+
+[mergetool "diffconflicts"]
+    cmd            = diffconflicts gvim $BASE $LOCAL $REMOTE $MERGED
+    trustExitCode  = true
+    keepBackup     = false
+
+[push]
+  # default        = single
+  # default        = simple
+    default        = tracking
+
+[advice]
+    statusHints    = false
+
+[git-up "rebase"]
+    auto           = false
+
+[commit]
+    verbose          = true
+    wsErrorHighlight = old,new
+
+[filter "lfs"]
+    clean          = git-lfs clean -- %f
+    smudge         = git-lfs smudge -- %f
+    required       = true
+
+[add]
+    wsErrorHighlight = old,new
+
+[rerere]
+    enabled        = true
+
+[credential]
+    helper         = cache --timeout=3600000
+
+[pull]
+    rebase         = false
+
